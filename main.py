@@ -1,15 +1,17 @@
 import discord
+import discord.opus
 import openai
 from dotenv import load_dotenv
-from os import environ as env
+import os
 from const import conversationSummarySchema
 from deepgram import DeepgramClient, PrerecordedOptions, FileSource
+from index import keep_alive
 
 bot = discord.Bot()
 connections = {}
 load_dotenv()
 
-deepgram = DeepgramClient(env.get("DEEPGRAM_API_TOKEN"))
+deepgram = DeepgramClient(os.getenv("DEEPGRAM_API_TOKEN"))
 
 options = PrerecordedOptions(
     model="nova-2",
@@ -20,11 +22,13 @@ options = PrerecordedOptions(
     detect_language=True,
 )
 
-discord.opus.load_opus("/usr/local/opt/opus/lib/libopus.0.dylib")
+if not discord.opus.is_loaded():
+    discord.opus.load_opus('libopus.so')
+
 
 client = openai.OpenAI(
     base_url="https://api.endpoints.anyscale.com/v1",
-    api_key=env.get("ANYSCALE_MISTRAL_TOKEN"),
+    api_key=os.getenv("ANYSCALE_MISTRAL_TOKEN"),
 )
 
 
@@ -47,7 +51,9 @@ async def record(ctx):
 
 
 async def once_done(sink: discord.sinks, channel: discord.TextChannel, *args):
-    recorded_users = [f"<@{user_id}>" for user_id, audio in sink.audio_data.items()]
+    recorded_users = [
+        f"<@{user_id}>" for user_id, audio in sink.audio_data.items()
+    ]
     await sink.vc.disconnect()
 
     words_list = []
@@ -57,7 +63,8 @@ async def once_done(sink: discord.sinks, channel: discord.TextChannel, *args):
             "buffer": audio.file.read(),
         }
 
-        response = deepgram.listen.prerecorded.v("1").transcribe_file(payload, options)
+        response = deepgram.listen.prerecorded.v("1").transcribe_file(
+            payload, options)
 
         words = response["results"]["channels"][0]["alternatives"][0]["words"]
 
@@ -99,13 +106,21 @@ async def once_done(sink: discord.sinks, channel: discord.TextChannel, *args):
         model="mistralai/Mistral-7B-Instruct-v0.1",
         messages=[
             {
-                "role": "system",
-                "content": "You are a conversation summarizer. You are also responsible to assign action items to the users. Below is a transcript of a conversation",
+                "role":
+                "system",
+                "content":
+                "You are a conversation summarizer. You are also responsible to assign action items to the users. Below is a transcript of a conversation",
             },
-            {"role": "user", "content": transcript},
+            {
+                "role": "user",
+                "content": transcript
+            },
         ],
         temperature=0.7,
-        tools=[{"type": "function", "function": conversationSummarySchema}],
+        tools=[{
+            "type": "function",
+            "function": conversationSummarySchema
+        }],
     )
 
     await channel.send(
@@ -124,4 +139,5 @@ async def stop_recording(ctx):
         await ctx.respond("🚫 Not recording here")
 
 
-bot.run(env.get("DISCORD_BOT_TOKEN"))
+keep_alive()
+bot.run(os.getenv("DISCORD_BOT_TOKEN"))

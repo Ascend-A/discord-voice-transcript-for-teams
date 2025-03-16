@@ -3,3 +3,4 @@ deepgram-sdk
 pynacl
 python-dotenv
 openai
+flask
